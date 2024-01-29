@@ -1,6 +1,7 @@
 package com.fxf.adbhost
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
@@ -34,6 +35,7 @@ class MainActivity : ComponentActivity() {
         val controller = UsbController(this)
         controller.connect()
 
+        Log.i("MainActivity", "onCreate")
         setContent {
             AdbHostTheme {
                 // A surface container using the 'background' color from the theme
@@ -72,7 +74,13 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        Log.i("MainActivity", "onResume")
+    }
 }
+
 
 @Composable
 fun Greeting(name: String, modifier: Modifier = Modifier) {

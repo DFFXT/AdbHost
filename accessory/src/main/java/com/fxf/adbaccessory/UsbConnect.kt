@@ -11,7 +11,7 @@ import android.hardware.usb.UsbManager
 import android.os.Build
 import android.util.Log
 
-class UsbConnect(val ctx: Context) : BroadcastReceiver() {
+class UsbConnect(private val controller: UsbController, val ctx: Context) : BroadcastReceiver() {
     companion object {
         private const val PERMISSION_ACTION = "usb.accessory.permission"
     }
@@ -24,19 +24,13 @@ class UsbConnect(val ctx: Context) : BroadcastReceiver() {
 
     fun connect(callback: (UsbTransportor) -> Unit) {
         this.connectionCallback = callback
-        usbManager.accessoryList ?: return log("没找到设备")
-        for (d in usbManager.accessoryList) {
-            log("try connect to:$d")
-            if (requestPermission(device = d)) {
-                onConnected(d)
-                break
-            }
-        }
+
         val filter = IntentFilter().apply {
             addAction(PERMISSION_ACTION)
             addAction(UsbManager.ACTION_USB_ACCESSORY_ATTACHED)
             addAction(UsbManager.ACTION_USB_ACCESSORY_DETACHED)
         }
+        // ctx.unregisterReceiver(this)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ctx.registerReceiver(
                 this,
@@ -46,10 +40,18 @@ class UsbConnect(val ctx: Context) : BroadcastReceiver() {
         } else {
             ctx.registerReceiver(this, filter)
         }
+        usbManager.accessoryList ?: return log("没找到设备")
+        for (d in usbManager.accessoryList) {
+            log("try connect to:$d")
+            if (requestPermission(device = d)) {
+                onConnected(d)
+                break
+            }
+        }
     }
 
     override fun onReceive(context: Context?, intent: Intent?) {
-        log("onReceive")
+        log("onReceive: ${intent?.action}")
         intent?.getParcelableExtra<UsbAccessory>(UsbManager.EXTRA_ACCESSORY)?.let {
             usbModify(intent.action ?: "", it)
         }
@@ -89,13 +91,21 @@ class UsbConnect(val ctx: Context) : BroadcastReceiver() {
 
     private fun onConnected(device: UsbAccessory) {
         log("onConnected ")
+        val parcelFileDescriptor = usbManager.openAccessory(device) ?: return
+        this.connectionCallback?.invoke(UsbTransportor(controller, parcelFileDescriptor))
         isReady = true
-        this.connectionCallback?.invoke(UsbTransportor(usbManager, device))
     }
 
     private fun reset() {
+        connection?.close()
         connection = null
         isReady = false
+    }
+
+    fun terminate() {
+        // ctx.unregisterReceiver(this)
+        connection?.close()
+        connection = null
     }
 
     private fun release() {

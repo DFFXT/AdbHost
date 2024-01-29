@@ -8,12 +8,13 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
+import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
 import android.os.Build
 import android.util.Log
 import java.util.LinkedList
 
-class UsbConnect(val ctx: Context) : BroadcastReceiver() {
+class UsbConnect(private val controller: UsbController, val ctx: Context) : BroadcastReceiver() {
     companion object {
         private const val PERMISSION_ACTION = "afd.afasdfsdf"
 
@@ -41,16 +42,11 @@ class UsbConnect(val ctx: Context) : BroadcastReceiver() {
 
     val usbManager = ctx.getSystemService(Context.USB_SERVICE) as UsbManager
     private var connection: UsbDeviceConnection? = null
-    private var connectedCallback: ((UsbTransportor)-> Unit)? = null
-    fun connect(callback: ((UsbTransportor)-> Unit)) {
+    private var usbInterface: UsbInterface? = null
+    private var connectedCallback: ((UsbTransportor) -> Unit)? = null
+    fun connect(callback: ((UsbTransportor) -> Unit)) {
         this.connectedCallback = callback
-        for (d in usbManager.deviceList.values) {
-            log("try connect to:$d")
-            if (isRightDevice(d) && switchAoA(device = d)) {
-                onConnected(d)
-                break
-            }
-        }
+
         val filter = IntentFilter().apply {
             addAction(PERMISSION_ACTION)
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
@@ -64,6 +60,13 @@ class UsbConnect(val ctx: Context) : BroadcastReceiver() {
             )
         } else {
             ctx.registerReceiver(this, filter)
+        }
+        for (d in usbManager.deviceList.values) {
+            log("try connect to:$d")
+            if (isRightDevice(d) && switchAoA(device = d)) {
+                onConnected(d)
+                break
+            }
         }
     }
 
@@ -93,9 +96,9 @@ class UsbConnect(val ctx: Context) : BroadcastReceiver() {
     }
 
     private fun handShack(device: UsbDevice): Boolean {
-        val usbInterface = device.getInterface(0)
+        usbInterface = usbInterface ?: device.getInterface(0)
         connection = connection ?: usbManager.openDevice(device)
-        val claim = connection!!.claimInterface(usbInterface, false)
+        val claim = connection!!.claimInterface(usbInterface, true)
         if (claim) {
             val byteArray = ByteArray(2)
             val result = connection!!.controlGet(51, 0, 0, byteArray, 0)
@@ -136,7 +139,7 @@ class UsbConnect(val ctx: Context) : BroadcastReceiver() {
                 log("hand try switch to accessory")
                 if (handShack(device)) {
                     // val r  = connection!!.controlPush(53, 0 ,0, null, 1000)
-                    val r  = startAccessory()
+                    val r = startAccessory()
                     if (r) {
                         log("switch aoa true")
                         return false
@@ -158,6 +161,7 @@ class UsbConnect(val ctx: Context) : BroadcastReceiver() {
     private fun UsbDeviceConnection.controlPush(request: Int, value: Int, index: Int, byteArray: ByteArray?, timeout: Int): Int {
         return controlTransfer(UsbConstants.USB_DIR_OUT or UsbConstants.USB_TYPE_VENDOR, request, value, index, byteArray, byteArray?.size ?: 0, timeout)
     }
+
     private fun UsbDeviceConnection.controlGet(request: Int, value: Int, index: Int, byteArray: ByteArray, timeout: Int): Int {
         return controlTransfer(UsbConstants.USB_DIR_IN or UsbConstants.USB_TYPE_VENDOR, request, value, index, byteArray, byteArray.size, timeout)
     }
@@ -166,10 +170,11 @@ class UsbConnect(val ctx: Context) : BroadcastReceiver() {
         log("onReceive")
         intent?.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)?.let {
             usbModify(intent.action ?: "", it)
-        }?: log("error no device")
+        } ?: log("error no device")
     }
 
     private fun usbModify(action: String, device: UsbDevice) {
+        log("usbModify $device")
         for (i in 0 until device.interfaceCount) {
             val face = device.getInterface(i)
             log("face$i: ${face.name} ${face.interfaceClass} ${face.interfaceProtocol} ${face.interfaceSubclass} ${face.alternateSetting} ${face.endpointCount}")
@@ -185,7 +190,7 @@ class UsbConnect(val ctx: Context) : BroadcastReceiver() {
                 }
             }
 
-            UsbManager.ACTION_USB_DEVICE_ATTACHED-> {
+            UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
                 if (switchAoA(device)) {
                     onConnected(device)
                 } else {
@@ -211,8 +216,7 @@ class UsbConnect(val ctx: Context) : BroadcastReceiver() {
 
     private fun onConnected(device: UsbDevice) {
         log("onConnected ")
-        connectedCallback?.invoke(UsbTransportor(device.getInterface(0), connection!!))
-
+        connectedCallback?.invoke(UsbTransportor(controller, usbInterface!!, connection!!))
     }
 
     private fun reset() {
@@ -223,60 +227,71 @@ class UsbConnect(val ctx: Context) : BroadcastReceiver() {
         ctx.unregisterReceiver(this)
     }
 
-
-
     private fun sendIdentities(): Boolean {
         val timeout = 1000
         if (controlTransferOut(AOA_SEND_IDENT, 0, 0, AOA_MANUFACTURER.toByteArray(), timeout = timeout) < 0) {
-            //Logger.d(Constants.TAG,"AOA_MANUFACTURER false")
+            // Logger.d(Constants.TAG,"AOA_MANUFACTURER false")
             return false
         }
 
         if (controlTransferOut(AOA_SEND_IDENT, 0, 1, AOA_MODEL_NAME.toByteArray(), timeout = timeout) < 0) {
-            //Logger.d(Constants.TAG,"AOA_MODEL_NAME false")
+            // Logger.d(Constants.TAG,"AOA_MODEL_NAME false")
             return false
         }
 
         if (controlTransferOut(AOA_SEND_IDENT, 0, 2, AOA_DESCRIPTION.toByteArray(), timeout = timeout) < 0) {
-            //Logger.d(Constants.TAG,"AOA_DESCRIPTION false")
+            // Logger.d(Constants.TAG,"AOA_DESCRIPTION false")
             return false
         }
 
         if (controlTransferOut(AOA_SEND_IDENT, 0, 3, AOA_VERSION.toByteArray(), timeout = timeout) < 0) {
-            //Logger.d(Constants.TAG,"AOA_VERSION false")
+            // Logger.d(Constants.TAG,"AOA_VERSION false")
             return false
         }
 
         if (controlTransferOut(AOA_SEND_IDENT, 0, 4, AOA_URI.toByteArray(), timeout = timeout) < 0) {
-            //Logger.d(Constants.TAG,"AOA_URI false")
+            // Logger.d(Constants.TAG,"AOA_URI false")
             return false
         }
 
         if (controlTransferOut(AOA_SEND_IDENT, 0, 5, AOA_SERIAL_NUMBER.toByteArray(), timeout = timeout) < 0) {
-            //Logger.d(Constants.TAG,"AOA_SERIAL_NUMBER false")
+            // Logger.d(Constants.TAG,"AOA_SERIAL_NUMBER false")
             return false
         }
-        //Logger.d(Constants.TAG,"sendIdentities true");
+        // Logger.d(Constants.TAG,"sendIdentities true");
         return true
     }
 
-    private fun controlTransferOut(request: Int, value: Int, index: Int,
-                                   buffer: ByteArray? = null,
-                                   length: Int = buffer?.size ?: 0, timeout: Int = 0): Int {
+    private fun controlTransferOut(
+        request: Int,
+        value: Int,
+        index: Int,
+        buffer: ByteArray? = null,
+        length: Int = buffer?.size ?: 0,
+        timeout: Int = 0,
+    ): Int {
         // Logger.d(Constants.TAG, "controlTransferOut:start,request:",request,",value",value,",index:",index,",buffer:",buffer,",len:",length)
-        var funValue =  connection!!.controlTransfer(
+        var funValue = connection!!.controlTransfer(
             UsbConstants.USB_DIR_OUT or UsbConstants.USB_TYPE_VENDOR,
             request,
             value,
             index,
             buffer,
             length,
-            timeout)
+            timeout,
+        )
         // Logger.d(Constants.TAG, "controlTransferOut:",funValue)
         return funValue
     }
 
     fun log(msg: String) {
         Log.d("Connect", msg)
+    }
+
+    fun terminate() {
+        connection?.close()
+        connectedCallback = null
+        connection = null
+        usbInterface = null
     }
 }

@@ -6,10 +6,13 @@ import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.util.Log
 import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
-class UsbTransportor(private val usbInterface: UsbInterface, private val connection: UsbDeviceConnection) {
+class UsbTransportor(
+    private val controller: UsbController,
+    private val usbInterface: UsbInterface,
+    private val connection: UsbDeviceConnection,
+) {
     private val input: UsbEndpoint by lazy {
         for (i in 0 until usbInterface.endpointCount) {
             val end = usbInterface.getEndpoint(i)
@@ -33,23 +36,13 @@ class UsbTransportor(private val usbInterface: UsbInterface, private val connect
 
     private val sendQueue = LinkedBlockingQueue<Message>()
 
+    @Volatile
+    private var isStop = false
+
     init {
         read()
-
         thread {
-            while (true) {
-                val msg = sendQueue.poll(10000, TimeUnit.MILLISECONDS) ?: continue
-                log("send start")
-                repeat(100) {
-                    Thread.sleep(1000)
-                    connection.bulkTransfer(out, msg.body, 0, msg.body.size, 0)
-                }
-                // connection.bulkTransfer(out, msg.body, 0, msg.body.size, 0)
-                log("send end")
-            }
-        }
-        thread {
-            while (true) {
+            while (!isStop) {
                 Thread.sleep(2000)
                 send("hello, Im host".toByteArray())
             }
@@ -59,24 +52,41 @@ class UsbTransportor(private val usbInterface: UsbInterface, private val connect
     fun read() {
         thread {
             val buffer = ByteArray(1024)
-            while (true) {
-                log("start read")
-                val size = connection.bulkTransfer(input, buffer, 0, buffer.size, 0)
-                if (size > 0) {
-                    log("read: ${String(buffer, 0, size)}")
-                } else {
-                    throw Exception("size=$size")
+            try {
+                while (!isStop) {
+                    log("start read")
+                    val size = connection.bulkTransfer(input, buffer, 0, buffer.size, 0)
+                    if (size > 0) {
+                        log("read: ${String(buffer, 0, size)}")
+                    } else {
+                        throw Exception("bulkTransfer -1")
+                    }
                 }
+            } catch (e: Throwable) {
+                e.printStackTrace()
+                controller.terminate()
             }
+
         }
     }
 
     fun send(byteArray: ByteArray, offset: Int = 0, len: Int = byteArray.size) {
         // sendQueue.offer(Message(byteArray))
         // log("send in task list")
-        log("start send： ${String(byteArray, offset, len)}")
-        val size = connection.bulkTransfer(out, byteArray, offset, len, 0)
-        log("send： $size")
+        try {
+            log("start send： ${String(byteArray, offset, len)}")
+            val size = connection.bulkTransfer(out, byteArray, offset, len, 0)
+            log("send： $size")
+            if (size < 0) {
+                throw Exception("bulkTransfer -1")
+            }
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            controller.terminate()
+        }
+    }
+    fun terminate() {
+        isStop = true
     }
 
     private fun log(msg: String) {
