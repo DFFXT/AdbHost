@@ -55,7 +55,7 @@ class UsbTransportor(
             try {
                 while (!isStop) {
                     log("start read")
-                    val size = connection.bulkTransfer(input, buffer, 0, buffer.size, 0)
+                    val size = connection.bulkTransfer(input, buffer, buffer.size, 0)
                     if (size > 0) {
                         log("read: ${String(buffer, 0, size)}")
                     } else {
@@ -75,9 +75,10 @@ class UsbTransportor(
         // log("send in task list")
         try {
             log("start send： ${String(byteArray, offset, len)}")
-            val size = connection.bulkTransfer(out, byteArray, offset, len, 0)
+            val size = connection.bulkTransfer(out, byteArray, len, 0)
             log("send： $size")
             if (size < 0) {
+                log("test claim ${connection.claimInterface(usbInterface, false)}")
                 throw Exception("bulkTransfer -1")
             }
         } catch (e: Throwable) {
@@ -86,6 +87,7 @@ class UsbTransportor(
         }
     }
     fun terminate() {
+        log("transport terminate")
         isStop = true
     }
 

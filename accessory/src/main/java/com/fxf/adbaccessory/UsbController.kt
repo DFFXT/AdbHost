@@ -24,11 +24,12 @@ class UsbController(private val ctx: Context) {
     }
 
     fun terminate() {
+        log(this, "terminate")
         transportor?.terminate()
         connect.terminate()
         transportor = null
         thread {
-            System.exit(0)
+           // System.exit(0)
             /*Thread.sleep(8000)
             connect()*/
         }

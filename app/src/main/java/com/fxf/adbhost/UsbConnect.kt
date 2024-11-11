@@ -12,7 +12,9 @@ import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
 import android.os.Build
 import android.util.Log
+import kotlinx.coroutines.delay
 import java.util.LinkedList
+import kotlin.concurrent.thread
 
 class UsbConnect(private val controller: UsbController, val ctx: Context) : BroadcastReceiver() {
     companion object {
@@ -45,6 +47,7 @@ class UsbConnect(private val controller: UsbController, val ctx: Context) : Broa
     private var usbInterface: UsbInterface? = null
     private var connectedCallback: ((UsbTransportor) -> Unit)? = null
     fun connect(callback: ((UsbTransportor) -> Unit)) {
+        log("start connect")
         this.connectedCallback = callback
 
         val filter = IntentFilter().apply {
@@ -73,14 +76,15 @@ class UsbConnect(private val controller: UsbController, val ctx: Context) : Broa
     private fun isWifiDevice(device: UsbDevice?): Boolean {
         device ?: return false
         if (1 == device.interfaceCount) {
-            val usbInter = device.getInterface(UsbConstants.USB_CLASS_MASS_STORAGE)
+            return true
+            /*val usbInter = device.getInterface(UsbConstants.USB_CLASS_MASS_STORAGE)
             if (UsbConstants.USB_CLASS_VENDOR_SPEC == usbInter.interfaceClass &&
                 UsbConstants.USB_CLASS_VENDOR_SPEC == usbInter.interfaceSubclass &&
                 UsbConstants.USB_CLASS_VENDOR_SPEC == usbInter.interfaceProtocol
             ) {
                 log("this device is wifi")
                 return true
-            }
+            }*/
         }
         return false
     }
@@ -98,10 +102,11 @@ class UsbConnect(private val controller: UsbController, val ctx: Context) : Broa
     private fun handShack(device: UsbDevice): Boolean {
         usbInterface = usbInterface ?: device.getInterface(0)
         connection = connection ?: usbManager.openDevice(device)
-        val claim = connection!!.claimInterface(usbInterface, true)
+        val claim = connection!!.claimInterface(usbInterface, false)
         if (claim) {
             val byteArray = ByteArray(2)
             val result = connection!!.controlGet(51, 0, 0, byteArray, 0)
+            log(this, "getVersion, ${byteArray[0]} ${byteArray[1]}")
             if (result > 0) {
                 if (sendIdentities()) {
                     return true
@@ -177,7 +182,7 @@ class UsbConnect(private val controller: UsbController, val ctx: Context) : Broa
         log("usbModify $device")
         for (i in 0 until device.interfaceCount) {
             val face = device.getInterface(i)
-            log("face$i: ${face.name} ${face.interfaceClass} ${face.interfaceProtocol} ${face.interfaceSubclass} ${face.alternateSetting} ${face.endpointCount}")
+            // log("face$i: ${face.name} ${face.interfaceClass} ${face.interfaceProtocol} ${face.interfaceSubclass} ${face.alternateSetting} ${face.endpointCount}")
         }
         when (action) {
             PERMISSION_ACTION -> {
@@ -215,7 +220,7 @@ class UsbConnect(private val controller: UsbController, val ctx: Context) : Broa
     }
 
     private fun onConnected(device: UsbDevice) {
-        log("onConnected ")
+        log("onConnected $connectedCallback")
         connectedCallback?.invoke(UsbTransportor(controller, usbInterface!!, connection!!))
     }
 
@@ -290,7 +295,7 @@ class UsbConnect(private val controller: UsbController, val ctx: Context) : Broa
 
     fun terminate() {
         connection?.close()
-        connectedCallback = null
+        // connectedCallback = null
         connection = null
         usbInterface = null
     }

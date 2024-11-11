@@ -10,6 +10,7 @@ import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
 import android.os.Build
 import android.util.Log
+import kotlin.concurrent.thread
 
 class UsbConnect(private val controller: UsbController, val ctx: Context) : BroadcastReceiver() {
     companion object {
@@ -19,6 +20,7 @@ class UsbConnect(private val controller: UsbController, val ctx: Context) : Broa
     val usbManager = ctx.getSystemService(Context.USB_SERVICE) as UsbManager
     private var connection: UsbDeviceConnection? = null
     private var connectionCallback: ((UsbTransportor) -> Unit)? = null
+    private var device: UsbAccessory? = null
     var isReady: Boolean = false
         private set
 
@@ -40,7 +42,15 @@ class UsbConnect(private val controller: UsbController, val ctx: Context) : Broa
         } else {
             ctx.registerReceiver(this, filter)
         }
+        thread {
+            while (true) {
+                Thread.sleep(1000)
+                log(this, "usbAccessory size :${usbManager.accessoryList?.size}")
+
+            }
+        }
         usbManager.accessoryList ?: return log("没找到设备")
+        log("find usb accessory: ${usbManager.accessoryList.size}")
         for (d in usbManager.accessoryList) {
             log("try connect to:$d")
             if (requestPermission(device = d)) {
@@ -48,6 +58,7 @@ class UsbConnect(private val controller: UsbController, val ctx: Context) : Broa
                 break
             }
         }
+
     }
 
     override fun onReceive(context: Context?, intent: Intent?) {
@@ -74,7 +85,8 @@ class UsbConnect(private val controller: UsbController, val ctx: Context) : Broa
             }
 
             UsbManager.ACTION_USB_ACCESSORY_DETACHED -> {
-                reset()
+                // reset()
+                controller.terminate()
             }
         }
     }
@@ -91,9 +103,14 @@ class UsbConnect(private val controller: UsbController, val ctx: Context) : Broa
 
     private fun onConnected(device: UsbAccessory) {
         log("onConnected ")
-        val parcelFileDescriptor = usbManager.openAccessory(device) ?: return
-        this.connectionCallback?.invoke(UsbTransportor(controller, parcelFileDescriptor))
-        isReady = true
+        thread {
+            this.device = device
+            Thread.sleep(3000)
+            val parcelFileDescriptor = usbManager.openAccessory(device)
+            this.connectionCallback?.invoke(UsbTransportor(controller, parcelFileDescriptor))
+            isReady = true
+        }
+
     }
 
     private fun reset() {
@@ -103,14 +120,12 @@ class UsbConnect(private val controller: UsbController, val ctx: Context) : Broa
     }
 
     fun terminate() {
+        log(this, "terminate")
         // ctx.unregisterReceiver(this)
         connection?.close()
         connection = null
     }
 
-    private fun release() {
-        ctx.unregisterReceiver(this)
-    }
 
     fun log(msg: String) {
         Log.d("Connect", msg)

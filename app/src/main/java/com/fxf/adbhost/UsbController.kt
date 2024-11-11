@@ -23,8 +23,8 @@ class UsbController(private val ctx: Context) {
         transportor?.terminate()
         connect.terminate()
         thread {
-            Thread.sleep(3000)
-            connect()
+            /*Thread.sleep(3000)
+            connect()*/
         }
     }
 }

@@ -25,7 +25,12 @@ class UsbTransportor(private val controller: UsbController, parcelFileDescriptor
             while (!isStop) {
                 val msg = sendQueue.poll(10000, TimeUnit.MILLISECONDS) ?: continue
                 log("send start")
-                output.write(msg.body)
+                try {
+                    output.write(msg.body)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    controller.terminate()
+                }
                 // output.flush()
                 log("send end")
             }
@@ -58,7 +63,10 @@ class UsbTransportor(private val controller: UsbController, parcelFileDescriptor
     }
 
     fun terminate() {
+        log(this, "terminate")
         isStop = true
+        input.close()
+        output.close()
     }
 
     private fun log(msg: String) {
